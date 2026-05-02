@@ -77,65 +77,99 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;700&display=swap');
         body { font-family: 'Kanit', sans-serif; background: #f1f5f9; }
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #cbd5e1; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; }
-        .day-cell { min-height: 120px; background: white; padding: 10px; transition: 0.2s; position: relative; }
+        .calendar-grid { 
+            display: grid; 
+            grid-template-columns: repeat(7, 1fr); 
+            gap: 1px; 
+            background: #cbd5e1; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 12px; 
+            overflow: hidden; 
+        }
+        .day-cell { 
+            min-height: 100px; 
+            background: white; 
+            padding: 8px; 
+            transition: 0.2s; 
+            position: relative; 
+            display: flex;
+            flex-direction: column;
+        }
         .day-cell:hover { background: #f8fafc; }
         .today { background: #eff6ff !important; border: 2px solid #3b82f6 !important; }
-        .holiday { color: #ef4444; font-size: 0.75rem; font-weight: bold; margin-bottom: 4px; }
-        .appt-item { background: #f0fdf4; color: #166534; font-size: 0.7rem; padding: 4px 6px; border-radius: 6px; margin-top: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #22c55e; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .holiday { color: #ef4444; font-size: 0.7rem; font-weight: bold; margin-bottom: 2px; line-height: 1; }
+        .appt-item { 
+            background: #f0fdf4; 
+            color: #166534; 
+            font-size: 0.65rem; 
+            padding: 2px 4px; 
+            border-radius: 4px; 
+            margin-top: 2px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            border-left: 3px solid #22c55e; 
+            box-shadow: 0 1px 1px rgba(0,0,0,0.05); 
+        }
+        .scroll-container {
+            max-height: 100%;
+            overflow-y: auto;
+        }
+        /* ซ่อน scrollbar สำหรับแอปในมือถือ */
+        .scroll-container::-webkit-scrollbar { display: none; }
     </style>
 </head>
-<body class="p-4 md:p-10">
+<body class="p-2 md:p-10">
 
     <div class="max-w-6xl mx-auto">
         <div class="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200">
             <!-- Header -->
-            <div class="p-8 bg-indigo-700 text-white flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="p-6 md:p-8 bg-indigo-700 text-white flex flex-col md:flex-row justify-between items-center gap-4">
                 <div>
-                    <h1 id="monthYear" class="text-3xl font-extrabold tracking-tight">กำลังโหลด...</h1>
-                    <div id="syncStatus" class="mt-2 text-sm opacity-90">กำลังตรวจสอบการเชื่อมต่อ...</div>
+                    <h1 id="monthYear" class="text-2xl md:text-3xl font-extrabold tracking-tight text-center md:text-left">กำลังโหลด...</h1>
+                    <div id="syncStatus" class="mt-1 text-[10px] md:text-sm opacity-90 text-center md:text-left">กำลังตรวจสอบการเชื่อมต่อ...</div>
                 </div>
-                <div class="flex items-center gap-3 bg-white/10 p-2 rounded-2xl">
-                    <button onclick="changeMonth(-1)" class="w-10 h-10 flex items-center justify-center hover:bg-white/20 rounded-xl transition"><i class="fas fa-chevron-left"></i></button>
-                    <button onclick="resetToday()" class="px-6 py-2 bg-white text-indigo-700 rounded-xl font-bold text-sm shadow-lg">วันนี้</button>
-                    <button onclick="changeMonth(1)" class="w-10 h-10 flex items-center justify-center hover:bg-white/20 rounded-xl transition"><i class="fas fa-chevron-right"></i></button>
+                <div class="flex items-center gap-2 bg-white/10 p-2 rounded-2xl">
+                    <button onclick="changeMonth(-1)" class="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center hover:bg-white/20 rounded-xl transition"><i class="fas fa-chevron-left"></i></button>
+                    <button onclick="resetToday()" class="px-4 py-1 md:px-6 md:py-2 bg-white text-indigo-700 rounded-xl font-bold text-xs md:text-sm shadow-lg">วันนี้</button>
+                    <button onclick="changeMonth(1)" class="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center hover:bg-white/20 rounded-xl transition"><i class="fas fa-chevron-right"></i></button>
                 </div>
             </div>
 
-            <div class="p-6 grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <div class="p-4 md:p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <!-- Sidebar Control -->
-                <div class="lg:col-span-1 space-y-6">
-                    <div class="p-6 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm">
-                        <h3 class="font-bold text-slate-800 mb-4 flex items-center text-sm uppercase tracking-wider">
+                <div class="lg:col-span-1 space-y-4">
+                    <div class="p-4 md:p-6 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm">
+                        <h3 class="font-bold text-slate-800 mb-4 flex items-center text-xs md:text-sm uppercase tracking-wider">
                             <i class="fas fa-calendar-plus mr-2 text-indigo-600"></i>ลงนัดหมายกลุ่ม
                         </h3>
-                        <div class="space-y-4">
+                        <div class="space-y-3">
                             <div>
-                                <label class="text-[10px] font-bold text-slate-400 uppercase">วันที่นัด</label>
-                                <input type="date" id="inputDate" class="w-full mt-1 p-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                                <label class="text-[9px] font-bold text-slate-400 uppercase">วันที่นัด</label>
+                                <input type="date" id="inputDate" class="w-full mt-1 p-2 md:p-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
                             </div>
                             <div>
-                                <label class="text-[10px] font-bold text-slate-400 uppercase">รายละเอียด</label>
-                                <input type="text" id="inputTitle" placeholder="เช่น ประชุมงาน..." class="w-full mt-1 p-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                                <label class="text-[9px] font-bold text-slate-400 uppercase">รายละเอียด</label>
+                                <input type="text" id="inputTitle" placeholder="เช่น ประชุมงาน..." class="w-full mt-1 p-2 md:p-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
                             </div>
-                            <button onclick="handleAdd()" class="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">
+                            <button onclick="handleAdd()" class="w-full py-3 md:py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-200 text-sm">
                                 บันทึกข้อมูล
                             </button>
                         </div>
                     </div>
                     
-                    <div class="p-5 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3">
-                        <i class="fas fa-info-circle text-amber-500 mt-1"></i>
-                        <p class="text-xs text-amber-800 leading-relaxed">
-                            <b>การใช้งานแบบกลุ่ม:</b> ทุกคนที่เปิดลิงก์ GitHub ของคุณจะเห็นข้อมูลนัดหมายที่เพิ่มเข้ามาพร้อมกันทันที
+                    <div class="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-2">
+                        <i class="fas fa-info-circle text-amber-500 mt-0.5 text-xs"></i>
+                        <p class="text-[10px] text-amber-800 leading-relaxed">
+                            <b>การใช้งานแบบกลุ่ม:</b> ข้อมูลจะซิงค์กันอัตโนมัติทุกอุปกรณ์ที่ใช้ลิงก์เดียวกัน
                         </p>
                     </div>
                 </div>
 
                 <!-- Calendar View -->
                 <div class="lg:col-span-3">
-                    <div class="grid grid-cols-7 text-center mb-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">
-                        <div class="text-rose-500 uppercase">Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div class="text-indigo-500">Sat</div>
+                    <div class="grid grid-cols-7 text-center mb-2 text-[9px] md:text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                        <div class="text-rose-500">Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div class="text-indigo-500">Sat</div>
                     </div>
                     <div id="calendarArea" class="calendar-grid"></div>
                 </div>
@@ -146,7 +180,7 @@
     <script>
         let currentMonth = new Date();
         const thMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-        const holidays = { "01-01": "วันปีใหม่", "04-13": "วันสงกรานต์", "05-01": "วันแรงงาน", "08-12": "วันแม่", "12-05": "วันพ่อ", "12-31": "วันสิ้นปี" };
+        const holidays = { "01-01": "วันปีใหม่", "04-13": "วันสงกรานต์", "04-14": "วันสงกรานต์", "04-15": "วันสงกรานต์", "05-01": "วันแรงงาน", "05-04": "วันฉัตรมงคล", "07-28": "วันเฉลิมฯ ร.10", "08-12": "วันแม่", "10-13": "วัน ร.9", "10-23": "วันปิยมหาราช", "12-05": "วันพ่อ", "12-10": "วันรัฐธรรมนูญ", "12-31": "วันสิ้นปี" };
 
         window.renderCalendar = () => {
             const year = currentMonth.getFullYear();
@@ -158,12 +192,14 @@
             const area = document.getElementById('calendarArea');
             area.innerHTML = '';
 
-            // ช่องว่าง
+            // เติมช่องว่างของเดือนก่อนหน้า
             for (let i = 0; i < firstDay; i++) {
-                area.innerHTML += '<div class="day-cell bg-slate-50/50"></div>';
+                const emptyCell = document.createElement('div');
+                emptyCell.className = 'day-cell bg-slate-50/50';
+                area.appendChild(emptyCell);
             }
 
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = new Date().toLocaleDateString('en-CA'); // Get YYYY-MM-DD in local time
 
             for (let d = 1; d <= daysInMonth; d++) {
                 const fullDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -173,8 +209,8 @@
                 cell.className = `day-cell ${isToday ? 'today' : ''}`;
                 cell.onclick = () => document.getElementById('inputDate').value = fullDate;
 
-                let html = `<div class="flex justify-between items-start">
-                    <span class="text-sm font-bold ${isToday ? 'text-indigo-600' : 'text-slate-500'}">${d}</span>
+                let html = `<div class="flex justify-between items-start mb-1">
+                    <span class="text-xs md:text-sm font-bold ${isToday ? 'text-indigo-600' : 'text-slate-500'}">${d}</span>
                 </div>`;
                 
                 const holidayName = holidays[fullDate.substring(5)];
@@ -182,6 +218,7 @@
                     html += `<div class="holiday">${holidayName}</div>`;
                 }
 
+                html += `<div class="scroll-container">`;
                 // กรองนัดหมายของวันนี้
                 const items = window.appointments.filter(a => a.date === fullDate);
                 items.forEach(item => {
@@ -190,9 +227,19 @@
                         <button onclick="event.stopPropagation(); window.deleteFromCloud('${item.id}')" class="hover:text-rose-500 opacity-40 hover:opacity-100 transition"><i class="fas fa-trash-alt"></i></button>
                     </div>`;
                 });
+                html += `</div>`;
 
                 cell.innerHTML = html;
                 area.appendChild(cell);
+            }
+            
+            // เติมช่องว่างให้ครบแถวสุดท้าย (เพื่อให้ grid ไม่เบี้ยว)
+            const totalCells = firstDay + daysInMonth;
+            const remaining = (7 - (totalCells % 7)) % 7;
+            for (let i = 0; i < remaining; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.className = 'day-cell bg-slate-50/50';
+                area.appendChild(emptyCell);
             }
         };
 
@@ -216,7 +263,7 @@
         };
 
         window.onload = () => {
-            document.getElementById('inputDate').value = new Date().toISOString().split('T')[0];
+            document.getElementById('inputDate').value = new Date().toLocaleDateString('en-CA');
             window.renderCalendar();
         };
     </script>
