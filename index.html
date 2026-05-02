@@ -10,69 +10,96 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // Firebase Configuration จากระบบ
+        // Firebase Configuration
         const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         
-        const SHARED_APP_ID = typeof __app_id !== 'undefined' ? __app_id : "shared-calendar-v2";
+        const appId = typeof __app_id !== 'undefined' ? __app_id : "shared-calendar-v3";
 
         window.appointments = [];
         window.isOnline = false;
+        window.currentUser = null;
 
-        async function startCloudSync() {
+        async function initAuth() {
             try {
-                await signInAnonymously(auth);
-                const colRef = collection(db, 'artifacts', SHARED_APP_ID, 'public', 'data', 'appointments');
-                
-                // สั่ง Render ครั้งแรกทันทีที่ต่อติด
-                onSnapshot(colRef, (snapshot) => {
-                    const list = [];
-                    snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-                    window.appointments = list;
-                    window.isOnline = true;
-                    updateStatus(true);
-                    if (typeof window.renderCalendar === 'function') {
-                        window.renderCalendar();
-                    }
-                }, (err) => {
-                    console.error("Sync Error:", err);
-                    updateStatus(false);
-                    window.renderCalendar(); // แม้ Error ก็ต้องวาดปฏิทิน
-                });
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
             } catch (e) {
-                console.error("Connection failed:", e);
+                console.error("Auth failed:", e);
+                updateStatus(false);
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            window.currentUser = user;
+            if (user) {
+                startCloudSync();
+            }
+        });
+
+        function startCloudSync() {
+            if (!window.currentUser) return;
+            
+            // ใช้โครงสร้าง Path ตามกฎที่เคร่งครัด: /artifacts/{appId}/public/data/{collectionName}
+            const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
+            
+            onSnapshot(colRef, (snapshot) => {
+                const list = [];
+                snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+                window.appointments = list;
+                window.isOnline = true;
+                updateStatus(true);
+                window.renderCalendar();
+            }, (err) => {
+                console.error("Firestore Sync Error:", err);
                 updateStatus(false);
                 window.renderCalendar();
-            }
+            });
         }
 
         function updateStatus(online) {
             const el = document.getElementById('syncStatus');
             if (el) {
                 el.innerHTML = online 
-                    ? '<span class="text-emerald-400 font-medium text-xs"><i class="fas fa-check-circle mr-1"></i> เชื่อมต่อฐานข้อมูลกลุ่มแล้ว</span>' 
-                    : '<span class="text-rose-300 font-medium text-xs"><i class="fas fa-wifi-slash mr-1"></i> โหมดออฟไลน์</span>';
+                    ? '<span class="text-emerald-400 font-medium text-xs"><i class="fas fa-check-circle mr-1"></i> เชื่อมต่อกลุ่มสำเร็จ (บันทึกได้)</span>' 
+                    : '<span class="text-rose-300 font-medium text-xs"><i class="fas fa-wifi-slash mr-1"></i> ปัญหาการเชื่อมต่อ - ลองรีเฟรช</span>';
             }
         }
 
         window.saveToCloud = async (appt) => {
-            if (window.isOnline) {
-                await addDoc(collection(db, 'artifacts', SHARED_APP_ID, 'public', 'data', 'appointments'), appt);
+            if (!window.currentUser) {
+                console.error("No user auth");
+                return;
+            }
+            try {
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
+                await addDoc(colRef, appt);
+            } catch (e) {
+                console.error("Save failed:", e);
+                // แสดงข้อความเตือนใน UI แทน alert
+                const status = document.getElementById('syncStatus');
+                status.innerHTML = '<span class="text-rose-500 font-bold text-xs"><i class="fas fa-times-circle mr-1"></i> บันทึกไม่สำเร็จ! ตรวจสอบสิทธิ์</span>';
             }
         };
 
         window.deleteFromCloud = async (id) => {
-            if (window.isOnline) {
-                await deleteDoc(doc(db, 'artifacts', SHARED_APP_ID, 'public', 'data', 'appointments', id));
+            if (!window.currentUser) return;
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id);
+                await deleteDoc(docRef);
+            } catch (e) {
+                console.error("Delete failed:", e);
             }
         };
 
-        // เริ่มซิงค์
-        startCloudSync();
+        initAuth();
     </script>
 
     <style>
@@ -151,7 +178,7 @@
                     <div class="p-4 bg-blue-50 rounded-2xl border border-blue-100 flex gap-3 items-start">
                         <i class="fas fa-info-circle text-blue-500 mt-1"></i>
                         <p class="text-xs text-blue-800 leading-relaxed font-light">
-                            <b>ระบบ Real-time:</b> ทุกเครื่องที่เปิดหน้านี้จะเห็นข้อมูลที่เพิ่มเข้ามาโดยไม่ต้องกด Refresh หน้าจอ
+                            <b>ระบบซิงค์:</b> ข้อมูลจะอัปเดตอัตโนมัติบนทุกอุปกรณ์ที่ใช้รหัสกลุ่มเดียวกัน
                         </p>
                     </div>
                 </div>
@@ -186,20 +213,18 @@
             const month = viewDate.getMonth();
             const firstDayIndex = new Date(year, month, 1).getDay();
             const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = new Date().toLocaleDateString('en-CA');
             
             document.getElementById('monthYearDisplay').innerText = `${thMonths[month]} ${year + 543}`;
             const grid = document.getElementById('calendarGrid');
             grid.innerHTML = '';
 
-            // 1. วันของเดือนก่อนหน้า (Empty Cells)
             for (let i = 0; i < firstDayIndex; i++) {
                 const empty = document.createElement('div');
                 empty.className = 'day-cell bg-slate-50/30';
                 grid.appendChild(empty);
             }
 
-            // 2. วันที่ของเดือนปัจจุบัน (1 - 31)
             for (let day = 1; day <= lastDayOfMonth; day++) {
                 const fullDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 const isToday = fullDate === todayStr;
@@ -217,13 +242,11 @@
                     </div>
                 `;
 
-                // เช็ควันหยุด
                 const holidayName = holidays[fullDate.substring(5)];
                 if (holidayName) {
                     html += `<div class="holiday-text">${holidayName}</div>`;
                 }
 
-                // ส่วนแสดงนัดหมาย
                 html += `<div class="scroll-list">`;
                 const filtered = (window.appointments || []).filter(a => a.date === fullDate);
                 filtered.forEach(item => {
@@ -242,7 +265,6 @@
                 grid.appendChild(cell);
             }
 
-            // 3. เติมช่องว่างให้ครบ Grid 7x6 หรือ 7x5
             const totalInGrid = firstDayIndex + lastDayOfMonth;
             const remaining = (7 - (totalInGrid % 7)) % 7;
             for (let i = 0; i < remaining; i++) {
@@ -257,8 +279,15 @@
             const title = document.getElementById('inputTitle').value.trim();
             if (!date || !title) return;
             
+            const btn = event.target;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>กำลังบันทึก...';
+
             await window.saveToCloud({ date, title });
+            
             document.getElementById('inputTitle').value = '';
+            btn.disabled = false;
+            btn.innerHTML = 'บันทึกลงคลาวด์';
         };
 
         window.changeMonth = (dir) => {
@@ -271,9 +300,8 @@
             window.renderCalendar();
         };
 
-        // เริ่มต้นวาดครั้งแรกทันที
         window.onload = () => {
-            document.getElementById('inputDate').value = new Date().toISOString().split('T')[0];
+            document.getElementById('inputDate').value = new Date().toLocaleDateString('en-CA');
             window.renderCalendar();
         };
     </script>
