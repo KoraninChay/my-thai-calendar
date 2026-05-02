@@ -3,184 +3,218 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบปฏิทินอัจฉริยะ</title>
+    <title>ระบบปฏิทินซิงค์ข้อมูลกลุ่ม</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        let db, auth, appId;
-        window.appointments = JSON.parse(localStorage.getItem('backup_appts')) || [];
+        // ระบบเชื่อมต่อฐานข้อมูลส่วนกลาง (รันบน GitHub ได้)
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        // ใช้ ID ชุดเดียวกันเพื่อให้ทุกเครื่องเห็นข้อมูลเดียวกัน
+        const SHARED_APP_ID = "my-shared-group-calendar-2024"; 
+
+        window.appointments = [];
         window.isOnline = false;
 
-        async function initSystem() {
+        async function startCloudSync() {
             try {
-                // ตรวจสอบว่ามี config หรือไม่ (ถ้าไม่มีแสดงว่ารันบน GitHub หรือที่อื่น)
-                if (typeof __firebase_config !== 'undefined') {
-                    const firebaseConfig = JSON.parse(__firebase_config);
-                    const app = initializeApp(firebaseConfig);
-                    auth = getAuth(app);
-                    db = getFirestore(app);
-                    appId = typeof __app_id !== 'undefined' ? __app_id : 'global-calendar';
-
-                    await signInAnonymously(auth);
-                    const q = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
-                    
-                    onSnapshot(q, (snapshot) => {
-                        const data = [];
-                        snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
-                        window.appointments = data;
-                        window.isOnline = true;
-                        updateStatusUI(true);
-                        window.renderCalendar();
-                    });
-                } else {
-                    throw new Error("Running outside specialized environment");
-                }
-            } catch (error) {
-                console.log("System: Offline mode active.");
-                window.isOnline = false;
-                updateStatusUI(false);
-                window.renderCalendar();
+                // เข้าระบบเพื่อให้มีสิทธิ์อ่าน/เขียน
+                await signInAnonymously(auth);
+                
+                // อ้างอิงตำแหน่งเก็บข้อมูลส่วนกลาง
+                const colRef = collection(db, 'artifacts', SHARED_APP_ID, 'public', 'data', 'appointments');
+                
+                // ติดตามข้อมูลแบบ Real-time (ถ้าเครื่องอื่นเพิ่ม ข้อมูลเครื่องนี้จะขึ้นทันที)
+                onSnapshot(colRef, (snapshot) => {
+                    const list = [];
+                    snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+                    window.appointments = list;
+                    window.isOnline = true;
+                    updateStatus(true);
+                    window.renderCalendar();
+                }, (err) => {
+                    console.error("Sync Error:", err);
+                    updateStatus(false);
+                });
+            } catch (e) {
+                console.error("Connection failed:", e);
+                updateStatus(false);
             }
         }
 
-        function updateStatusUI(online) {
-            const statusEl = document.getElementById('syncStatus');
-            if (statusEl) {
-                statusEl.innerHTML = online 
-                    ? '<span class="text-green-500"><i class="fas fa-cloud mr-1"></i> เชื่อมต่อคลาวด์แล้ว</span>' 
-                    : '<span class="text-amber-500"><i class="fas fa-hdd mr-1"></i> โหมดบันทึกในเครื่อง (GitHub)</span>';
+        function updateStatus(online) {
+            const el = document.getElementById('syncStatus');
+            if (el) {
+                el.innerHTML = online 
+                    ? '<span class="text-green-500 font-bold"><i class="fas fa-globe mr-1"></i> เชื่อมต่อกลุ่มแล้ว (ซิงค์หลายเครื่อง)</span>' 
+                    : '<span class="text-rose-500 font-bold"><i class="fas fa-exclamation-triangle mr-1"></i> เชื่อมต่อล้มเหลว</span>';
             }
         }
 
-        window.saveData = async (appt) => {
-            if (window.isOnline && db) {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appt);
-            } else {
-                const newAppt = { id: Date.now().toString(), ...appt };
-                window.appointments.push(newAppt);
-                localStorage.setItem('backup_appts', JSON.stringify(window.appointments));
-                window.renderCalendar();
+        window.saveToCloud = async (appt) => {
+            if (window.isOnline) {
+                await addDoc(collection(db, 'artifacts', SHARED_APP_ID, 'public', 'data', 'appointments'), appt);
             }
         };
 
-        window.deleteData = async (id) => {
-            if (window.isOnline && db && id.length > 15) {
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
-            } else {
-                window.appointments = window.appointments.filter(a => a.id !== id);
-                localStorage.setItem('backup_appts', JSON.stringify(window.appointments));
-                window.renderCalendar();
+        window.deleteFromCloud = async (id) => {
+            if (window.isOnline) {
+                await deleteDoc(doc(db, 'artifacts', SHARED_APP_ID, 'public', 'data', 'appointments', id));
             }
         };
 
-        initSystem();
+        startCloudSync();
     </script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;700&display=swap');
-        body { font-family: 'Kanit', sans-serif; background-color: #f8fafc; }
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #e2e8f0; border: 1px solid #e2e8f0; }
-        .day-cell { min-height: 110px; background: white; padding: 8px; transition: 0.2s; cursor: pointer; position: relative; }
-        .day-cell:hover { background: #f1f5f9; }
-        .today { background: #f0f9ff !important; border: 2px solid #0ea5e9 !important; }
-        .holiday { color: #ef4444; font-size: 0.7rem; font-weight: 500; margin-top: 2px; }
-        .appt-box { background: #dcfce7; color: #166534; font-size: 0.65rem; padding: 2px 4px; border-radius: 4px; margin-top: 2px; display: flex; justify-content: space-between; align-items: center; border-left: 3px solid #22c55e; }
+        body { font-family: 'Kanit', sans-serif; background: #f1f5f9; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #cbd5e1; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; }
+        .day-cell { min-height: 120px; background: white; padding: 10px; transition: 0.2s; position: relative; }
+        .day-cell:hover { background: #f8fafc; }
+        .today { background: #eff6ff !important; border: 2px solid #3b82f6 !important; }
+        .holiday { color: #ef4444; font-size: 0.75rem; font-weight: bold; margin-bottom: 4px; }
+        .appt-item { background: #f0fdf4; color: #166534; font-size: 0.7rem; padding: 4px 6px; border-radius: 6px; margin-top: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #22c55e; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
     </style>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-4 md:p-10">
 
     <div class="max-w-6xl mx-auto">
-        <header class="bg-white p-6 rounded-3xl shadow-sm mb-6 flex flex-col md:flex-row justify-between items-center border border-slate-100">
-            <div>
-                <h1 id="monthTitle" class="text-3xl font-bold text-slate-800">ปฏิทินอเนกประสงค์</h1>
-                <div id="syncStatus" class="text-xs mt-1 italic">กำลังตรวจสอบสถานะ...</div>
+        <div class="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200">
+            <!-- Header -->
+            <div class="p-8 bg-indigo-700 text-white flex flex-col md:flex-row justify-between items-center gap-6">
+                <div>
+                    <h1 id="monthYear" class="text-3xl font-extrabold tracking-tight">กำลังโหลด...</h1>
+                    <div id="syncStatus" class="mt-2 text-sm opacity-90">กำลังตรวจสอบการเชื่อมต่อ...</div>
+                </div>
+                <div class="flex items-center gap-3 bg-white/10 p-2 rounded-2xl">
+                    <button onclick="changeMonth(-1)" class="w-10 h-10 flex items-center justify-center hover:bg-white/20 rounded-xl transition"><i class="fas fa-chevron-left"></i></button>
+                    <button onclick="resetToday()" class="px-6 py-2 bg-white text-indigo-700 rounded-xl font-bold text-sm shadow-lg">วันนี้</button>
+                    <button onclick="changeMonth(1)" class="w-10 h-10 flex items-center justify-center hover:bg-white/20 rounded-xl transition"><i class="fas fa-chevron-right"></i></button>
+                </div>
             </div>
-            <div class="flex gap-2 mt-4 md:mt-0">
-                <button onclick="moveMonth(-1)" class="w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition"><i class="fas fa-chevron-left text-slate-600"></i></button>
-                <button onclick="goToday()" class="px-6 py-2 bg-sky-600 text-white rounded-2xl hover:bg-sky-700 font-medium transition shadow-md">วันนี้</button>
-                <button onclick="moveMonth(1)" class="w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition"><i class="fas fa-chevron-right text-slate-600"></i></button>
-            </div>
-        </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <aside class="space-y-6">
-                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                    <h2 class="font-bold text-slate-700 mb-4 text-sm uppercase tracking-wider"><i class="fas fa-plus-circle mr-2 text-sky-500"></i>เพิ่มนัดหมาย</h2>
-                    <div class="space-y-3">
-                        <input type="date" id="inputDate" class="w-full p-3 bg-slate-50 border-none rounded-xl text-sm outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-sky-500">
-                        <input type="text" id="inputTitle" placeholder="รายละเอียด..." class="w-full p-3 bg-slate-50 border-none rounded-xl text-sm outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-sky-500">
-                        <button onclick="onSaveClick()" class="w-full py-3 bg-sky-600 text-white rounded-xl font-bold hover:bg-sky-700 transition">บันทึกข้อมูล</button>
+            <div class="p-6 grid grid-cols-1 lg:grid-cols-4 gap-8">
+                <!-- Sidebar Control -->
+                <div class="lg:col-span-1 space-y-6">
+                    <div class="p-6 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm">
+                        <h3 class="font-bold text-slate-800 mb-4 flex items-center text-sm uppercase tracking-wider">
+                            <i class="fas fa-calendar-plus mr-2 text-indigo-600"></i>ลงนัดหมายกลุ่ม
+                        </h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase">วันที่นัด</label>
+                                <input type="date" id="inputDate" class="w-full mt-1 p-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-400 uppercase">รายละเอียด</label>
+                                <input type="text" id="inputTitle" placeholder="เช่น ประชุมงาน..." class="w-full mt-1 p-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            </div>
+                            <button onclick="handleAdd()" class="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">
+                                บันทึกข้อมูล
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="p-5 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3">
+                        <i class="fas fa-info-circle text-amber-500 mt-1"></i>
+                        <p class="text-xs text-amber-800 leading-relaxed">
+                            <b>การใช้งานแบบกลุ่ม:</b> ทุกคนที่เปิดลิงก์ GitHub ของคุณจะเห็นข้อมูลนัดหมายที่เพิ่มเข้ามาพร้อมกันทันที
+                        </p>
                     </div>
                 </div>
-                <div class="bg-indigo-50 p-6 rounded-3xl border border-indigo-100">
-                    <p class="text-indigo-800 text-xs"><b>คำแนะนำ:</b> เมื่อใช้บน GitHub ข้อมูลจะถูกบันทึกไว้ในเครื่องที่คุณใช้งานอยู่ครับ</p>
-                </div>
-            </aside>
 
-            <main class="lg:col-span-3 bg-white rounded-3xl shadow-sm overflow-hidden border border-slate-100">
-                <div class="grid grid-cols-7 text-center py-4 bg-slate-50 border-b text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    <div class="text-red-500">อาทิตย์</div><div>จันทร์</div><div>อังคาร</div><div>พุธ</div><div>พฤหัส</div><div>ศุกร์</div><div class="text-blue-500">เสาร์</div>
+                <!-- Calendar View -->
+                <div class="lg:col-span-3">
+                    <div class="grid grid-cols-7 text-center mb-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                        <div class="text-rose-500 uppercase">Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div class="text-indigo-500">Sat</div>
+                    </div>
+                    <div id="calendarArea" class="calendar-grid"></div>
                 </div>
-                <div id="calendar" class="calendar-grid"></div>
-            </main>
+            </div>
         </div>
     </div>
 
     <script>
-        let viewDate = new Date();
-        const holidays = { "01-01": "ปีใหม่", "04-13": "สงกรานต์", "04-14": "สงกรานต์", "04-15": "สงกรานต์", "05-01": "แรงงาน", "07-28": "ร.10", "08-12": "วันแม่", "12-05": "วันพ่อ", "12-31": "สิ้นปี" };
+        let currentMonth = new Date();
+        const thMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        const holidays = { "01-01": "วันปีใหม่", "04-13": "วันสงกรานต์", "05-01": "วันแรงงาน", "08-12": "วันแม่", "12-05": "วันพ่อ", "12-31": "วันสิ้นปี" };
 
         window.renderCalendar = () => {
-            const y = viewDate.getFullYear();
-            const m = viewDate.getMonth();
-            const first = new Date(y, m, 1).getDay();
-            const last = new Date(y, m + 1, 0).getDate();
-            const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+            const year = currentMonth.getFullYear();
+            const month = currentMonth.getMonth();
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
             
-            document.getElementById('monthTitle').innerText = `${monthNames[m]} ${y + 543}`;
-            const grid = document.getElementById('calendar');
-            grid.innerHTML = '';
+            document.getElementById('monthYear').innerText = `${thMonths[month]} ${year + 543}`;
+            const area = document.getElementById('calendarArea');
+            area.innerHTML = '';
 
-            for(let i=0; i<first; i++) grid.innerHTML += `<div class="day-cell bg-slate-50/50"></div>`;
+            // ช่องว่าง
+            for (let i = 0; i < firstDay; i++) {
+                area.innerHTML += '<div class="day-cell bg-slate-50/50"></div>';
+            }
+
             const todayStr = new Date().toISOString().split('T')[0];
 
-            for(let d=1; d<=last; d++) {
-                const dateKey = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                const isToday = dateKey === todayStr;
+            for (let d = 1; d <= daysInMonth; d++) {
+                const fullDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const isToday = fullDate === todayStr;
+                
                 const cell = document.createElement('div');
                 cell.className = `day-cell ${isToday ? 'today' : ''}`;
-                cell.onclick = () => document.getElementById('inputDate').value = dateKey;
+                cell.onclick = () => document.getElementById('inputDate').value = fullDate;
 
-                let html = `<div class="text-sm font-bold ${isToday ? 'text-sky-600' : 'text-slate-600'}">${d}</div>`;
-                if(holidays[dateKey.substring(5)]) html += `<div class="holiday">${holidays[dateKey.substring(5)]}</div>`;
+                let html = `<div class="flex justify-between items-start">
+                    <span class="text-sm font-bold ${isToday ? 'text-indigo-600' : 'text-slate-500'}">${d}</span>
+                </div>`;
                 
-                const dayAppts = (window.appointments || []).filter(a => a.date === dateKey);
-                dayAppts.forEach(a => {
-                    html += `<div class="appt-box">
-                        <span class="truncate">${a.title}</span>
-                        <button onclick="event.stopPropagation(); window.deleteData('${a.id}')"><i class="fas fa-times opacity-50 hover:opacity-100"></i></button>
+                const holidayName = holidays[fullDate.substring(5)];
+                if (holidayName) {
+                    html += `<div class="holiday">${holidayName}</div>`;
+                }
+
+                // กรองนัดหมายของวันนี้
+                const items = window.appointments.filter(a => a.date === fullDate);
+                items.forEach(item => {
+                    html += `<div class="appt-item">
+                        <span class="truncate pr-1">${item.title}</span>
+                        <button onclick="event.stopPropagation(); window.deleteFromCloud('${item.id}')" class="hover:text-rose-500 opacity-40 hover:opacity-100 transition"><i class="fas fa-trash-alt"></i></button>
                     </div>`;
                 });
+
                 cell.innerHTML = html;
-                grid.appendChild(cell);
+                area.appendChild(cell);
             }
         };
 
-        window.onSaveClick = async () => {
+        window.handleAdd = async () => {
             const date = document.getElementById('inputDate').value;
             const title = document.getElementById('inputTitle').value.trim();
-            if(!date || !title) return alert("กรุณากรอกข้อมูลให้ครบ");
-            await window.saveData({ date, title });
+            if (!date || !title) return;
+            
+            await window.saveToCloud({ date, title });
             document.getElementById('inputTitle').value = '';
         };
 
-        window.moveMonth = (v) => { viewDate.setMonth(viewDate.getMonth() + v); window.renderCalendar(); };
-        window.goToday = () => { viewDate = new Date(); window.renderCalendar(); };
+        window.changeMonth = (val) => {
+            currentMonth.setMonth(currentMonth.getMonth() + val);
+            window.renderCalendar();
+        };
+
+        window.resetToday = () => {
+            currentMonth = new Date();
+            window.renderCalendar();
+        };
+
         window.onload = () => {
             document.getElementById('inputDate').value = new Date().toISOString().split('T')[0];
             window.renderCalendar();
